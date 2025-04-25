@@ -51,6 +51,51 @@ key secure and your AI bill predictable:
 
    <img src="https://github.com/lzell/AIProxySwift/assets/35940/fd76b588-5e19-4d4d-9748-8db3fd64df8e" alt="Set package rule" width="720">
 
+3. Call `AIProxy.configure` during app launch. In a SwiftUI app, you can add an `init` to your `MyApp.swift` file: 
+
+    ```swift
+    import AIProxy
+
+    @main
+    struct MyApp: App {
+        init() {
+            AIProxy.configure(
+                logLevel: .debug,
+                printRequestBodies: false,  // Flip to true for library development
+                printResponseBodies: false, // Flip to true for library development
+                resolveDNSOverTLS: true,
+                useStableID: true
+            )
+        }
+        // ...
+    }
+    ```
+
+   In a UIKit app, add `configure` to applicationDidFinishLaunching:
+
+    ```swift
+    import AIProxy
+
+    @UIApplicationMain
+    class AppDelegate: UIResponder, UIApplicationDelegate {
+
+        var window: UIWindow?
+
+        func application(_ application: UIApplication,
+                         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+            AIProxy.configure(
+                logLevel: .debug,
+                printRequestBodies: false,  // Flip to true for library development
+                printResponseBodies: false, // Flip to true for library development
+                resolveDNSOverTLS: true,
+                useStableID: true
+            )
+            // ...
+            return true
+        }
+        // ...
+    }
+    ```
 
 ### How to configure the package for use with AIProxy
 
@@ -386,16 +431,127 @@ This snippet will print out the URL of an image generated with `dall-e-3`:
     // )
 
     do {
-        let requestBody = OpenAICreateImageRequestBody(
-            prompt: "a skier",
-            model: "dall-e-3"
+        let response = try await openAIService.createImageRequest(
+            body: .init(
+                prompt: "a skier",
+                model: .dallE3
+            ),
+            secondsToWait: 300
         )
-        let response = try await openAIService.createImageRequest(body: requestBody)
         print(response.data.first?.url ?? "")
     } catch AIProxyError.unsuccessfulRequest(let statusCode, let responseBody) {
-        print("Received \(statusCode) status code with response body: \(responseBody)")
+        print("Received non-200 status code: \(statusCode) with response body: \(responseBody)")
     } catch {
-        print("Could not generate an image with OpenAI's DALLE: \(error.localizedDescription)")
+        print("Could not create an image with DALLE 3: \(error.localizedDescription)")
+    }
+```
+
+### How to generate an image with OpenAI's gpt-image-1
+
+```swift
+    import AIProxy
+
+    /* Uncomment for BYOK use cases */
+    // let openAIService = AIProxy.openAIDirectService(
+    //     unprotectedAPIKey: "your-openai-key"
+    // )
+
+    /* Uncomment for all other production use cases */
+    // let openAIService = AIProxy.openAIService(
+    //     partialKey: "partial-key-from-your-developer-dashboard",
+    //     serviceURL: "service-url-from-your-developer-dashboard"
+    // )
+
+    do {
+        let response = try await openAIService.createImageRequest(
+            body: .init(
+                prompt: "a skier",
+                model: .gptImage1
+            ),
+            secondsToWait: 300
+        )
+
+        guard let base64Data = response.data.first?.b64JSON,
+              let imageData = Data(base64Encoded: base64Data),
+              let image = UIImage(data: imageData) else {
+            print("Could not create a UIImage out of the base64 returned by OpenAI")
+            return
+        }
+
+        // Do something with 'image'
+    } catch AIProxyError.unsuccessfulRequest(let statusCode, let responseBody) {
+        print("Received non-200 status code: \(statusCode) with response body: \(responseBody)")
+    } catch {
+        print("Could not create OpenAI image generation: \(error.localizedDescription)")
+    }
+```
+
+### How to edit an image with OpenAI's gpt-image-1
+
+- This snippet uploads two images to `gpt-image-1`, transfering the material of one to the other.
+- One image is uploaded as a png and the other as a jpeg.
+- The output quality is chosen to be `.low` for speed of generation.
+
+```swift
+    import AIProxy
+
+    /* Uncomment for BYOK use cases */
+    // let openAIService = AIProxy.openAIDirectService(
+    //     unprotectedAPIKey: "your-openai-key"
+    // )
+
+    /* Uncomment for all other production use cases */
+    // let openAIService = AIProxy.openAIService(
+    //     partialKey: "partial-key-from-your-developer-dashboard",
+    //     serviceURL: "service-url-from-your-developer-dashboard"
+    // )
+
+    guard let image1 = UIImage(named: "my-first-image") else {
+        print("Could not find an image named 'my-first-image' in your app assets")
+        return
+    }
+
+    guard let image2 = UIImage(named: "my-second-image") else {
+        print("Could not find an image named 'my-second-image' in your app assets")
+        return
+    }
+
+    guard let jpegData = AIProxy.encodeImageAsJpeg(image: image1, compressionQuality: 0.4) else {
+        print("Could not convert image to jpeg")
+        return
+    }
+
+    guard let pngData = image2.pngData() else {
+        print("Could not convert image to png")
+        return
+    }
+
+    do {
+        let response = try await openAIService.createImageEditRequest(
+            body: .init(
+                images: [
+                    .jpeg(jpegData),
+                    .png(pngData)
+                ],
+                prompt: "Transfer the material of the second image to the first",
+                model: .gptImage1,
+                quality: .low
+            ),
+            secondsToWait: 300
+        )
+
+        guard let base64Data = response.data.first?.b64JSON,
+              let imageData = Data(base64Encoded: base64Data),
+              let image = UIImage(data: imageData) else {
+            print("Could not create a UIImage out of the base64 returned by OpenAI")
+            return
+        }
+
+        // Do something with 'image'
+    } catch AIProxyError.unsuccessfulRequest(let statusCode, let responseBody) {
+        print("Received non-200 status code: \(statusCode) with response body: \(responseBody)")
+    } catch {
+        print("Could not create OpenAI edit image generation: \(error.localizedDescription)")
     }
 ```
 
